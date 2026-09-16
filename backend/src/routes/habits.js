@@ -1,0 +1,13 @@
+import { Router } from 'express';
+import { body, param, validationResult } from 'express-validator';
+import Habit from '../models/Habit.js';
+import { requireAuth } from '../middleware/auth.js';
+const router = Router(); router.use(requireAuth);
+const validate = (req, res, next) => { const errors = validationResult(req); return errors.isEmpty() ? next() : res.status(422).json({ message: errors.array()[0].msg }); };
+const fields = [body('name').trim().isLength({ min: 1, max: 80 }).withMessage('Habit name must be 1–80 characters.'), body('description').optional().trim().isLength({ max: 240 }).withMessage('Description can be at most 240 characters.'), body('color').optional().matches(/^#[0-9A-Fa-f]{6}$/).withMessage('Choose a valid color.'), body('frequency').optional().isIn(['daily', 'weekdays', 'weekly']).withMessage('Choose a valid frequency.')];
+router.get('/', async (req, res, next) => { try { res.json(await Habit.find({ user: req.userId }).sort({ createdAt: -1 })); } catch (e) { next(e); } });
+router.post('/', [...fields, validate], async (req, res, next) => { try { res.status(201).json(await Habit.create({ ...req.body, user: req.userId })); } catch (e) { next(e); } });
+router.put('/:id', [param('id').isMongoId().withMessage('Invalid habit id.'), ...fields, validate], async (req, res, next) => { try { const habit = await Habit.findOneAndUpdate({ _id: req.params.id, user: req.userId }, req.body, { new: true, runValidators: true }); if (!habit) return res.status(404).json({ message: 'Habit not found.' }); res.json(habit); } catch (e) { next(e); } });
+router.delete('/:id', [param('id').isMongoId().withMessage('Invalid habit id.'), validate], async (req, res, next) => { try { const habit = await Habit.findOneAndDelete({ _id: req.params.id, user: req.userId }); if (!habit) return res.status(404).json({ message: 'Habit not found.' }); res.status(204).end(); } catch (e) { next(e); } });
+router.patch('/:id/toggle', [param('id').isMongoId().withMessage('Invalid habit id.'), body('date').matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Date must be YYYY-MM-DD.'), validate], async (req, res, next) => { try { const habit = await Habit.findOne({ _id: req.params.id, user: req.userId }); if (!habit) return res.status(404).json({ message: 'Habit not found.' }); const index = habit.completedDates.indexOf(req.body.date); if (index >= 0) habit.completedDates.splice(index, 1); else habit.completedDates.push(req.body.date); await habit.save(); res.json(habit); } catch (e) { next(e); } });
+export default router;
